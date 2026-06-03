@@ -1,301 +1,324 @@
-# Endonasal Surgical Video Frame Extraction Pipeline
+# Endoscopic Surgical Video Frame Extraction Pipeline
 
-**Author:** Dilip Goswami  
+**Author:** Dilip Goswami, MSc  
+**Institution:** TU Berlin  
 **Script:** `ImageExtraction.py`
 
 ## Overview
+This repository contains a publication-grade preprocessing pipeline for extracting image frames from temporally annotated endoscopic surgical videos.
 
-This repository contains a Python-based preprocessing pipeline for extracting image frames from temporally annotated endonasal surgery videos.
+The pipeline reads surgeon-annotated Excel files containing anatomical or procedural time blocks, matches them to source videos, and extracts image frames at a user-defined frame rate.
 
-The script reads an Excel annotation file containing patient IDs, video file names, block labels, and start/end timestamps. It then matches those annotations with corresponding `.mp4` video files and extracts frames from each labeled temporal block at a fixed rate of **5 frames per second (FPS)**.
+Unlike traditional extraction approaches that rely on random seeking or keyframe jumps, this implementation uses sequential OpenCV decoding only, ensuring frame-accurate alignment with annotated timelines and reducing label drift.
 
-The extracted frames are saved in a structured dataset layout organized by patient, video, and anatomical or procedural block label. The pipeline also generates per-block metadata, patient-level CSV summaries, missing-video reports, and processing logs for traceability and quality control.
-
----
+The pipeline supports multiprocessing, resumable extraction, quality filtering, face filtering, metadata generation, audit manifests, and robust handling of variable-frame-rate (VFR) recordings.
 
 ## Purpose
+Annotated surgical videos must often be transformed into structured image datasets before they can be used for machine learning and computer vision research.
 
-Medical and surgical video datasets often require careful preprocessing before they can be used for computer vision or deep learning tasks. This pipeline converts temporally annotated surgical videos into organized frame-level image datasets suitable for:
-
-- surgical scene understanding,
-- anatomical structure recognition,
-- segmentation and classification workflows,
-- medical computer vision dataset preparation,
-- frame-level model training,
-- quality-control analysis of annotated video blocks.
-
----
+This pipeline creates reproducible frame-level datasets suitable for:
+*   Surgical scene understanding
+*   Anatomical structure classification
+*   Surgical workflow analysis
+*   Deep learning dataset generation
+*   Medical computer vision research
+*   Quality-control and annotation validation
+*   Publication-grade dataset preparation
 
 ## Key Features
 
-- Reads temporal video annotations from an Excel spreadsheet
-- Supports multiple timestamp formats
-- Matches annotated patient/video entries with `.mp4` files
-- Extracts frames at a fixed rate of **5 FPS**
-- Handles small timing gaps between consecutive annotation blocks
-- Skips invalid or out-of-range video segments
-- Trims block end times if they exceed video duration
-- Processes multiple videos in parallel using multiprocessing
-- Saves extracted frames in a patient/video/block hierarchy
-- Generates a `metadata.json` file for each extracted block
-- Creates patient-level CSV extraction summaries
-- Logs processing status, warnings, and missing/unreadable videos
+### Annotation Processing
+*   Reads temporal annotations from Excel files
+*   Dynamically groups annotations by patient and video
+*   Does not depend on rigid row ordering
+*   Validates annotation structure before extraction
+*   Supports multiple timestamp formats
 
----
+### Frame Extraction
+*   User-selectable extraction FPS
+*   Sequential OpenCV decoding only
+*   No MoviePy dependency
+*   No random frame seeking
+*   No keyframe snapping artifacts
+*   Supports variable-frame-rate (VFR) videos
+*   Optional boundary trimming around annotation intervals
+
+### Label Handling
+Canonical normalization of annotation labels:
+
+| Raw Annotation Examples | Normalized Label |
+| :--- | :--- |
+| FACE + BLOCK 1 <br> FACE + BLOC 1 | BLOCK_1 |
+| BLOCK 2 + FACE | BLOCK_2 |
+| BLOCK 3 LEFT + FACE | BLOCK_3 |
+
+Non-training labels such as `MIRE + FACE` are automatically excluded.
+
+### Quality Filtering
+Optional frame rejection based on:
+*   Mean image intensity
+*   Overexposed images
+*   Underexposed images
+*   Laplacian variance blur detection
+
+Rejected frames are logged and included in audit manifests.
+
+### Face Filtering
+Optional Haar-cascade based face rejection:
+*   Applies only to FACE-marked intervals (default)
+*   Can optionally be applied to all extracted frames
+*   Supports frontal and profile face cascades
+
+### Resume Support
+*   Safe restart after interruption
+*   Per-block metadata tracking
+*   Skips already completed blocks
+*   Optional forced re-extraction
+
+### Parallel Processing
+*   Multiprocessing support
+*   Automatic worker selection
+*   Configurable worker count
+*   Load-balanced processing
+
+### Auditability
+Generates:
+*   Per-block metadata
+*   Block summaries
+*   Accepted-frame manifests
+*   Rejected-frame manifests
+*   Processing logs
 
 ## Project Structure
-
-Recommended repository structure:
-
 ```text
-endonasal-video-frame-extraction/
+endoscopic-frame-extraction/
 ├── ImageExtraction.py
 ├── README.md
 ├── requirements.txt
 └── .gitignore
+
 ```
 
-Example output structure generated by the script:
+Example output:
 
 ```text
-Splitted Images/
+output/
 ├── process.log
-├── missing_videos.txt
+├── global_block_summary.csv
+├── global_accepted_frame_manifest.csv
+├── global_rejected_frame_manifest.csv
 ├── PATIENT_01/
 │   ├── PATIENT_01_block_summary.csv
-│   └── PATIENT_01_VIDEO_01/
-│       ├── ANATOMICAL_BLOCK_A/
-│       │   ├── PATIENT_01_VIDEO_01_ANATOMICAL_BLOCK_A_0001.jpg
-│       │   ├── PATIENT_01_VIDEO_01_ANATOMICAL_BLOCK_A_0002.jpg
+│   └── VIDEO_01/
+│       ├── BLOCK_1/
+│       │   ├── VIDEO_01_BLOCK_1_0001.jpg
+│       │   ├── VIDEO_01_BLOCK_1_0002.jpg
 │       │   └── metadata.json
-│       └── ANATOMICAL_BLOCK_B/
-│           ├── PATIENT_01_VIDEO_01_ANATOMICAL_BLOCK_B_0001.jpg
-│           └── metadata.json
+│       ├── BLOCK_2/
+│       └── ...
 └── PATIENT_02/
-    └── ...
+
 ```
-
----
-
-## Input Requirements
-
-### 1. Excel Annotation File
-
-The script expects an Excel file containing:
-
-- patient identifier,
-- video file name,
-- temporal block start and end times,
-- corresponding block labels.
-
-The pipeline processes rows in pairs:
-
-```text
-Row 1: Patient/video information and timestamp values
-Row 2: Corresponding labels for the timestamp blocks
-```
-
-The script automatically forward-fills missing patient IDs and normalizes column names related to patient and video file names.
-
-### 2. Video Directory
-
-The video directory should contain `.mp4` files. The script searches recursively through the directory and ignores hidden macOS metadata files such as:
-
-```text
-._filename.mp4
-```
-
-The patient ID is inferred from the video filename using the first underscore-separated component:
-
-```text
-PATIENT01_video_name.mp4
-```
-
-becomes:
-
-```text
-Patient ID: PATIENT01
-Video name: PATIENT01_video_name
-```
-
-### 3. Output Directory
-
-All extracted frames, logs, summaries, and metadata files are written to the configured output directory.
-
----
-
-## Configuration
-
-The main paths and extraction frame rate are defined near the top of `ImageExtraction.py`:
-
-```python
-FPS = 5
-FRAME_INTERVAL = 1 / FPS
-
-EXCEL_PATH = r"/path/to/annotation_file.xlsx"
-VIDEO_DIR = r"/path/to/video_directory"
-OUTPUT_DIR = r"/path/to/output_directory"
-```
-
-Update these paths before running the script.
-
----
 
 ## Installation
 
-Create and activate a Python virtual environment:
+Create a virtual environment:
 
 ```bash
 python -m venv venv
 source venv/bin/activate
+
 ```
 
-On Windows:
+*(Windows)*:
 
-```bash
-python -m venv venv
+```cmd
 venv\Scripts\activate
+
 ```
 
-Install the required dependencies:
+Install dependencies:
 
 ```bash
-pip install pandas pillow moviepy openpyxl
+pip install pandas openpyxl opencv-python
+
 ```
 
-Optional `requirements.txt`:
+Example `requirements.txt`:
 
 ```text
 pandas
-pillow
-moviepy
 openpyxl
-```
+opencv-python
 
----
+```
 
 ## Usage
 
-After updating the input and output paths in `ImageExtraction.py`, run:
+The script is fully command-line driven.
+
+### Required Arguments
 
 ```bash
-python ImageExtraction.py
+python ImageExtraction.py \
+  --excel_path annotations.xlsx \
+  --video_dir videos \
+  --output_dir output
+
 ```
 
-The script will:
+### Example
 
-1. Load the Excel annotation file.
-2. Build a timeline of labeled temporal blocks.
-3. Search recursively for matching `.mp4` video files.
-4. Process matched videos in parallel.
-5. Extract frames from each labeled block at **5 FPS**.
-6. Save frames, metadata, logs, and CSV summaries.
+```bash
+python ImageExtraction.py \
+  --excel_path annotations.xlsx \
+  --video_dir ./videos \
+  --output_dir ./output \
+  --fps 5 \
+  --workers 8 \
+  --jpeg_quality 95
 
----
+```
+
+## Command Line Options
+
+### Extraction
+
+* `--fps`
+Target extraction frame rate. Default: `5`
+* `--jpeg_quality`
+JPEG quality from 1 to 100. Default: `95`
+
+### Boundary Trimming
+
+* `--boundary_buffer_sec`
+Trim both start and end of every annotation interval.
+*Example:* `--boundary_buffer_sec 0.25` removes 250 ms from both ends.
+
+### Multiprocessing
+
+* `--workers`
+Number of worker processes. `0` = automatic.
+
+### Resume Control
+
+* `--force_reextract`
+Ignore existing metadata and regenerate all outputs.
+
+### Quality Filtering
+
+Enable quality filtering: `--enable_quality_filter`
+Optional thresholds:
+
+* `--min_mean_intensity` (Default: 15)
+* `--max_mean_intensity` (Default: 240)
+* `--min_laplacian_var` (Default: 50)
+
+### Face Filtering
+
+Enable face rejection: `--enable_face_filter`
+
+* Apply only to FACE-marked intervals: `--face_filter_scope marked`
+* Apply to all extracted frames: `--face_filter_scope all`
+
+Additional tuning:
+
+* `--face_scale_factor`
+* `--face_min_neighbors`
+* `--face_min_size`
+
+### Timing Modes
+
+**Presentation Time (Recommended)**
+
+* `--timing_mode presentation_time`
+Uses `CAP_PROP_POS_MSEC`. Recommended for VFR videos, clinical recordings, and mixed recording sources.
+
+**Frame Index**
+
+* `--timing_mode frame_index`
+Uses timestamp × source FPS. Recommended only for strictly fixed-frame-rate videos.
+
+**Timestamp Formats**
+Supported formats include: `12.5`, `01:20`, `00:01:20`, `datetime.time`.
+Ambiguous two-field timestamps can be interpreted using:
+
+* `--two_field_time_format mm:ss` (Default)
+* `--two_field_time_format hh:mm`
+* `--two_field_time_format reject`
+
+## Output Files
+
+### Metadata
+
+Each extracted block contains a `metadata.json` with keys tracking the extraction state:
+
+```json
+{
+  "original_start_sec": 10.0,
+  "original_end_sec": 20.0,
+  "planned_frame_count": 50,
+  "processed_frame_count": 50,
+  "accepted_frame_count": 50,
+  "rejected_frame_count": 0,
+  "completed": true
+}
+
+```
+
+### Block Summary
+
+* Per-patient summaries: `<PATIENT_ID>_block_summary.csv`
+* Global Block Summary: `global_block_summary.csv` (Contains extraction statistics across all videos).
+
+### Manifests
+
+* **Accepted Frame Manifest**: `global_accepted_frame_manifest.csv` (Tracks every saved frame).
+* **Rejected Frame Manifest**: `global_rejected_frame_manifest.csv` (Tracks all rejected frames and reasons).
+
+### Processing Log
+
+`process.log` includes video matching, extraction progress, warnings, skipped intervals, filtering decisions, and processing failures.
+
+### Missing or Unreadable Videos
+
+If videos are missing, unreadable, or fail during decoding, the script writes:
+
+```text
+missing_or_unreadable_videos.txt
+
+```
 
 ## Processing Workflow
 
 ```mermaid
 flowchart LR
-    A[Excel Annotation File] --> B[Parse Patient, Video, Labels, Timestamps]
-    B --> C[Build Temporal Timeline]
-    C --> D[Search MP4 Videos]
-    D --> E[Match Video Files with Timeline]
-    E --> F[Parallel Video Processing]
-    F --> G[Extract Frames at 5 FPS]
-    G --> H[Save Frames by Patient / Video / Block]
-    H --> I[Write Metadata JSON]
-    H --> J[Generate Patient CSV Summary]
-    F --> K[Write Processing Logs]
+    A[Excel Annotation File]
+    A --> B[Validate and Normalize Labels]
+    B --> C[Build Timeline]
+    C --> D[Match Videos]
+    D --> E[Create Extraction Tasks]
+    E --> F[Parallel OpenCV Decoding]
+    F --> G[Quality Filtering]
+    G --> H[Face Filtering]
+    H --> I[Save Frames]
+    I --> J[Metadata]
+    I --> K[Accepted Manifest]
+    G --> L[Rejected Manifest]
+    I --> M[Block Summaries]
+    F --> N[Processing Logs]
+
 ```
 
----
+## Design Principles
 
-## Timestamp Handling
+This implementation was designed to support reproducible medical AI research by emphasizing:
 
-The script supports several timestamp formats, including:
+* frame-accurate temporal alignment
+* deterministic extraction
+* auditability
+* resumability
+* robust handling of clinical video data
 
-```text
-12.5
-01:20
-00:01:20
-datetime.time objects
+
 ```
-
-Examples:
-
-```text
-01:20     → 80 seconds
-00:01:20 → 80 seconds
-12.5      → 12.5 seconds
-```
-
-Small gaps between consecutive blocks are adjusted when the gap is greater than `0.1` seconds and less than or equal to `1.0` second. This helps reduce the risk of losing frames between adjacent annotation blocks.
-
----
-
-## Output Files
-
-### Extracted Frames
-
-Frames are saved as `.jpg` files using the following naming convention:
-
-```text
-<video_name>_<block_label>_<frame_number>.jpg
-```
-
-Example:
-
-```text
-PATIENT01_VIDEO01_NASAL_CAVITY_0001.jpg
-```
-
-### Metadata
-
-Each extracted block contains a `metadata.json` file:
-
-```json
-{
-  "start_sec": 10.0,
-  "end_sec": 20.0,
-  "frames": 50
-}
-```
-
-### Patient Summary CSV
-
-For each patient, the script generates:
-
-```text
-<PATIENT_ID>_block_summary.csv
-```
-
-The CSV contains:
-
-```text
-Video File, Block, Start Time, End Time, Duration(s), Frames
-```
-
-### Processing Log
-
-A global log file is saved as:
-
-```text
-process.log
-```
-
-It includes matched videos, skipped blocks, frame extraction warnings, missing files, and completion status.
-
-### Missing Videos Report
-
-If any videos cannot be opened, the script creates:
-
-```text
-missing_videos.txt
-```
-
-## Example Use Case
-
-This pipeline was designed for preprocessing temporally annotated endonasal surgical videos into frame-level image datasets. The extracted images can support downstream medical computer vision tasks such as anatomical recognition, surgical phase analysis, segmentation, and training-data preparation for deep learning models.
-
-
