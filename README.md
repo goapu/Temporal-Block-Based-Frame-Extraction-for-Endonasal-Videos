@@ -5,7 +5,7 @@
 **Script:** `ImageExtraction.py`
 
 ## Overview
-This repository contains a publication-grade preprocessing pipeline for extracting image frames from temporally annotated endoscopic surgical videos.
+This repository contains a preprocessing pipeline for extracting image frames from temporally annotated endoscopic surgical videos.
 
 The pipeline reads surgeon-annotated Excel files containing anatomical or procedural time blocks, matches them to source videos, and extracts image frames at a user-defined frame rate.
 
@@ -23,7 +23,6 @@ This pipeline creates reproducible frame-level datasets suitable for:
 *   Deep learning dataset generation
 *   Medical computer vision research
 *   Quality-control and annotation validation
-*   Publication-grade dataset preparation
 
 ## Key Features
 
@@ -319,6 +318,5 @@ This implementation was designed to support reproducible medical AI research by 
 * auditability
 * resumability
 * robust handling of clinical video data
-
 
 ```
